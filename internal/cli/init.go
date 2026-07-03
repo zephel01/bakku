@@ -21,7 +21,7 @@ func newInitCmd() *cobra.Command {
 			}
 			defer be.Close()
 
-			pw, err := config.ResolvePassword(config.PasswordOptions{File: gf.passwordFile, Confirm: true})
+			pw, err := config.ResolvePassword(passwordOptions(true))
 			if err != nil {
 				return err
 			}

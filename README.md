@@ -87,10 +87,33 @@ bakku restore a1b2c3d4 --repo laptop --target /tmp/restore
 | `bakku check [--read-data]` | 整合性検査。`--read-data` で全 blob を再ハッシュ検証 |
 | `bakku verify-restore <snapID> [--sample pct]` | ランダムサンプルを一時領域へ復元しハッシュ検証 |
 | `bakku dest add/list/remove` | バックアップ先の名前管理 |
+| `bakku key add/list/remove` | 鍵スロット管理(複数パスワードで同一リポジトリを開ける) |
+| `bakku key add --yubikey` / `--yubikey`(グローバル) | YubiKeyのHMAC-SHA1チャレンジレスポンスでパスワードレス開錠 |
+| `bakku password store/forget` | OS キーチェーンへのパスワード保存/削除 |
 | `bakku schedule install/uninstall/status` | 定期実行ジョブの管理 |
 | `bakku version` | バージョン表示 |
 
-グローバルフラグ: `--repo` / `--config` / `--password-file` / `--json`(機械可読出力)。`backup`・`prune` は `--no-notify` も受け付けます。
+グローバルフラグ: `--repo` / `--config` / `--password-file` / `--password-command` / `--json`(機械可読出力)。`backup`・`prune` は `--no-notify` も受け付けます。
+
+### 🔑 鍵スロット(鍵を失っても別の鍵で開ける)
+
+全スロットが同一マスターキーをそれぞれのパスワードでラップするため、どれか 1 つの鍵でリポジトリを開けます。最後の 1 スロットは削除できません。
+
+```sh
+# 既存パスワードで開いた上で、新しいパスワードのスロットを追加
+bakku key add --repo laptop                 # BAKKU_NEW_PASSWORD / --new-password-file / 対話(2回)
+bakku key list --repo laptop                # スロット一覧(ID・type・作成日時・現在使用中 *)
+bakku key remove <keyID> --repo laptop      # スロット削除(現在使用中の削除は --force が必要)
+```
+
+YubiKeyのHMAC-SHA1チャレンジレスポンスでパスワードレス開錠も可能です(`ykman`/`ykchalresp` が必要。詳細は[クイックガイド](docs/quickguide.md#13-yubikeyでパスワードレス開錠)):
+
+```sh
+bakku key add --yubikey --repo laptop       # 既存資格情報で開いた上でYubiKeyスロットを追加
+bakku snapshots --repo laptop --yubikey     # パスワードなしでYubiKeyのみで開く
+```
+
+> 全スロットをYubiKeyだけにするのは非推奨です(紛失で復元不能)。パスワードスロットを最低1つ残してください。
 
 ## ☁️ バックアップ先(URL 形式)
 
@@ -147,9 +170,16 @@ format = "slack"   # "slack" / "discord" / "json"(URL から自動判定)
 [[dest]]
 name = "laptop"
 url  = "file:///mnt/backups/laptop"
+# password_command = "op read op://Private/bakku-laptop/password"  # dest 固有(任意)
+
+# グローバルのパスワード取得コマンド(dest 固有が無ければこちら)
+# password_command = "pass show bakku"
 ```
 
-パスワードの解決順: `BAKKU_PASSWORD` → `--password-file` → 対話入力。
+パスワードの解決順:
+`BAKKU_PASSWORD` → `--password-file` → `--password-command` → config `password_command`(dest 固有 → グローバル) → OS キーチェーン → 対話入力。
+
+外部シークレットマネージャ(1Password / Bitwarden / pass)や OS キーチェーンとの連携例は [docs/quickguide.md](docs/quickguide.md) を参照してください。
 
 ## 🏗️ 設計(リポジトリフォーマット)
 
