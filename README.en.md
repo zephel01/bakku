@@ -95,6 +95,8 @@ bakku restore a1b2c3d4 --repo laptop --target /tmp/restore
 
 Global flags: `--repo` / `--config` / `--password-file` / `--password-command` / `--json` (machine-readable output). `backup` and `prune` also accept `--no-notify`.
 
+See the **[command reference (docs/commands.md)](docs/commands.md)** (Japanese) for the meaning, defaults, and caveats of every option.
+
 ### 🔑 Key slots (lose one key, open with another)
 
 Every slot wraps the same master key with its own password, so any single key
