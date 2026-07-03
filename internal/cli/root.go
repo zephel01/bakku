@@ -10,14 +10,18 @@ import (
 	"github.com/zephel01/bakku/internal/backend"
 	"github.com/zephel01/bakku/internal/config"
 	"github.com/zephel01/bakku/internal/repo"
+	"github.com/zephel01/bakku/internal/yubikey"
 )
 
 // globalFlags holds flags shared across commands.
 type globalFlags struct {
-	repo         string
-	configPath   string
-	passwordFile string
-	json         bool
+	repo            string
+	configPath      string
+	passwordFile    string
+	passwordCommand string
+	json            bool
+	yubikey         bool
+	yubikeySlot     int
 }
 
 var gf globalFlags
@@ -49,7 +53,10 @@ func NewRootCmd(info BuildInfo) *cobra.Command {
 	pf.StringVar(&gf.repo, "repo", "", "destination name (from config) or backend URL")
 	pf.StringVar(&gf.configPath, "config", "", "config file path (default: $BAKKU_CONFIG or ~/.config/bakku/config.toml)")
 	pf.StringVar(&gf.passwordFile, "password-file", "", "read repository password from this file")
+	pf.StringVar(&gf.passwordCommand, "password-command", "", "run this shell command; its first stdout line is the password (e.g. \"op read op://Private/bakku/password\")")
 	pf.BoolVar(&gf.json, "json", false, "emit machine-readable JSON output where supported")
+	pf.BoolVar(&gf.yubikey, "yubikey", false, "unlock the repository using a registered YubiKey challenge-response slot instead of a password")
+	pf.IntVar(&gf.yubikeySlot, "yubikey-slot", 0, "OTP slot to use with --yubikey on `key add` (default: repository's stored slot when opening; 2 when adding)")
 
 	root.AddCommand(
 		newInitCmd(),
@@ -58,6 +65,8 @@ func NewRootCmd(info BuildInfo) *cobra.Command {
 		newRestoreCmd(),
 		newLsCmd(),
 		newDestCmd(),
+		newKeyCmd(),
+		newPasswordCmd(),
 		newForgetCmd(),
 		newPruneCmd(),
 		newCheckCmd(),
@@ -106,17 +115,71 @@ func openBackend(ctx context.Context) (backend.Backend, error) {
 	return backend.Open(ctx, url, backend.Options{})
 }
 
+// passwordOptions builds config.PasswordOptions honoring the global flags plus
+// config-derived password_command and OS-keychain lookup for the current --repo.
+// confirm only affects the interactive prompt (used by `init`).
+func passwordOptions(confirm bool) config.PasswordOptions {
+	opts := config.PasswordOptions{
+		File:    gf.passwordFile,
+		Command: gf.passwordCommand,
+		Confirm: confirm,
+	}
+	cfg, err := loadConfig()
+	if err == nil {
+		resolved, rerr := cfg.ResolveDest(gf.repo)
+		if rerr == nil {
+			opts.ConfigCommand = cfg.DestPasswordCommand(gf.repo, resolved)
+			opts.KeychainRepo = resolved
+		}
+	}
+	return opts
+}
+
 // openRepo opens the backend + repository, prompting/reading the password.
+//
+// YubiKey handling:
+//   - --yubikey: skip password resolution entirely and unlock with a
+//     registered yubikey-chalresp slot (via whichever external tool -
+//     ykchalresp or ykman - is found on PATH).
+//   - no --yubikey: resolve the password normally. If that fails (all
+//     password sources exhausted / no interactive terminal) AND the
+//     repository has at least one yubikey-chalresp slot AND a YubiKey tool is
+//     on PATH, silently retry with YubiKey unlock before giving up. This lets
+//     a scheduled/headless job that only has a YubiKey plugged in still work
+//     without requiring --yubikey explicitly.
 func openRepo(ctx context.Context, confirm bool) (*repo.Repository, error) {
 	be, err := openBackend(ctx)
 	if err != nil {
 		return nil, err
 	}
-	pw, err := config.ResolvePassword(config.PasswordOptions{File: gf.passwordFile, Confirm: confirm})
-	if err != nil {
-		be.Close()
-		return nil, err
+
+	if gf.yubikey {
+		r, yerr := repo.OpenWithYubiKey(ctx, be, yubikey.NewExecResponder())
+		if yerr != nil {
+			be.Close()
+			return nil, fmt.Errorf("yubikey unlock failed: %w", yerr)
+		}
+		return r, nil
 	}
+
+	pw, pwErr := config.ResolvePassword(passwordOptions(confirm))
+	if pwErr != nil {
+		// Auto-fallback: only attempt this if the repo actually has a YubiKey
+		// slot and a tool is available, so the common (no YubiKey) case never
+		// pays for a wasted backend round-trip or a confusing extra prompt.
+		if yubikey.DetectAvailable() {
+			hasSlot, hErr := repo.HasYubiKeySlot(ctx, be)
+			if hErr == nil && hasSlot {
+				r, yerr := repo.OpenWithYubiKey(ctx, be, yubikey.NewExecResponder())
+				if yerr == nil {
+					return r, nil
+				}
+			}
+		}
+		be.Close()
+		return nil, pwErr
+	}
+
 	r, err := repo.Open(ctx, be, pw)
 	if err != nil {
 		be.Close()

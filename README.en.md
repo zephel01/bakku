@@ -87,10 +87,34 @@ bakku restore a1b2c3d4 --repo laptop --target /tmp/restore
 | `bakku check [--read-data]` | Verify integrity; `--read-data` re-hashes every blob |
 | `bakku verify-restore <snapID> [--sample pct]` | Restore a random sample to a temp dir and verify hashes |
 | `bakku dest add/list/remove` | Manage named destinations |
+| `bakku key add/list/remove` | Manage key slots (multiple passwords can open one repo) |
+| `bakku key add --yubikey` / `--yubikey` (global) | Passwordless unlock via a YubiKey HMAC-SHA1 challenge-response slot |
+| `bakku password store/forget` | Save/remove the repository password in the OS keychain |
 | `bakku schedule install/uninstall/status` | Manage OS-native scheduled jobs |
 | `bakku version` | Print version, commit, build date |
 
-Global flags: `--repo` / `--config` / `--password-file` / `--json` (machine-readable output). `backup` and `prune` also accept `--no-notify`.
+Global flags: `--repo` / `--config` / `--password-file` / `--password-command` / `--json` (machine-readable output). `backup` and `prune` also accept `--no-notify`.
+
+### 🔑 Key slots (lose one key, open with another)
+
+Every slot wraps the same master key with its own password, so any single key
+opens the repository. The last remaining slot cannot be removed.
+
+```sh
+# Open with an existing credential, then add a new password slot
+bakku key add --repo laptop                 # BAKKU_NEW_PASSWORD / --new-password-file / interactive (twice)
+bakku key list --repo laptop                # slots (ID, type, created, current *)
+bakku key remove <keyID> --repo laptop      # remove a slot (removing the in-use slot needs --force)
+```
+
+Passwordless unlock via a YubiKey's HMAC-SHA1 challenge-response is also supported (requires `ykman` or `ykchalresp`; see the [quick guide](docs/quickguide.md#13-yubikeyでパスワードレス開錠), Japanese):
+
+```sh
+bakku key add --yubikey --repo laptop       # open with an existing credential, add a YubiKey slot
+bakku snapshots --repo laptop --yubikey     # open with only the YubiKey, no password
+```
+
+> Making every slot a YubiKey slot is discouraged (losing it makes the repo unrecoverable). Keep at least one password slot.
 
 ## ☁️ Storage backends (destination URLs)
 
@@ -147,9 +171,16 @@ TOML file at `~/.config/bakku/config.toml` (override with `BAKKU_CONFIG`):
 [[dest]]
 name = "laptop"
 url  = "file:///mnt/backups/laptop"
+# password_command = "op read op://Private/bakku-laptop/password"  # per-dest (optional)
+
+# Global password command (used when a dest has none)
+# password_command = "pass show bakku"
 ```
 
-Password resolution order: `BAKKU_PASSWORD` → `--password-file` → interactive prompt.
+Password resolution order:
+`BAKKU_PASSWORD` → `--password-file` → `--password-command` → config `password_command` (per-dest → global) → OS keychain → interactive prompt.
+
+See [docs/quickguide.md](docs/quickguide.md) for 1Password / Bitwarden / pass and OS-keychain integration examples.
 
 ## 🏗️ Design (repository format)
 

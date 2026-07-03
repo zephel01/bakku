@@ -58,6 +58,10 @@ type Repository struct {
 	cfg    repoConfig
 	master []byte
 
+	// openedKeyID is the id of the key slot that unlocked this repository (empty
+	// if opened via Init). Used by `key remove` to warn about self-removal.
+	openedKeyID string
+
 	dataKey  []byte
 	indexKey []byte
 	snapKey  []byte
@@ -65,7 +69,7 @@ type Repository struct {
 
 	index *Index
 
-	mu         sync.Mutex          // guards the open pack writer, pending, dirtyIx
+	mu         sync.Mutex // guards the open pack writer, pending, dirtyIx
 	pack       *packWriter
 	pending    []pendingBlob       // blobs in the open pack awaiting a pack id
 	pendingSet map[string]struct{} // ids in the open pack, for pre-flush dedup
@@ -133,11 +137,12 @@ func Open(ctx context.Context, be backend.Backend, password []byte) (*Repository
 	if err := json.Unmarshal(cfgBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("repo: corrupt config: %w", err)
 	}
-	master, err := loadMasterKey(ctx, be, password)
+	master, keyID, err := loadMasterKey(ctx, be, password)
 	if err != nil {
 		return nil, err
 	}
 	r := newRepository(be, cfg, master)
+	r.openedKeyID = keyID
 	ix, err := loadIndex(ctx, be, r.indexKey)
 	if err != nil {
 		return nil, err
@@ -359,6 +364,65 @@ func (r *Repository) FindSnapshot(ctx context.Context, prefix string) (*Snapshot
 
 // Config exposes repository config metadata.
 func (r *Repository) Config() (id string, version int) { return r.cfg.ID, r.cfg.Version }
+
+// OpenedKeyID returns the id of the key slot that unlocked this repository, or
+// "" if the repository was freshly created via Init.
+func (r *Repository) OpenedKeyID() string { return r.openedKeyID }
+
+// AddPasswordKeySlot wraps this repository's master key with a new
+// password-derived slot and stores it. The repository must already be open
+// (i.e. r.master is valid). Returns the new slot id.
+func (r *Repository) AddPasswordKeySlot(ctx context.Context, newPassword []byte) (string, error) {
+	id, blob, err := createKeyFile(newPassword, r.master)
+	if err != nil {
+		return "", err
+	}
+	if err := r.be.Save(ctx, "keys/"+id, bytesReader(blob), int64(len(blob))); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// ListKeySlots returns metadata for all key slots, oldest first. The Current
+// flag marks the slot that opened this repository.
+func (r *Repository) ListKeySlots(ctx context.Context) ([]KeySlotInfo, error) {
+	slots, err := listKeySlots(ctx, r.be)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]KeySlotInfo, 0, len(slots))
+	for _, s := range slots {
+		out = append(out, KeySlotInfo{
+			ID:      s.kf.ID,
+			Type:    s.kf.effectiveType(),
+			Created: s.kf.Created,
+			Current: s.kf.ID == r.openedKeyID && r.openedKeyID != "",
+		})
+	}
+	return out, nil
+}
+
+// RemoveKeySlot deletes the key slot whose id has the given prefix. It refuses
+// to remove the last remaining slot (ErrLastKeySlot). It returns the full id of
+// the removed slot and whether that slot was the one currently used to open the
+// repository (so the caller can warn on self-removal).
+func (r *Repository) RemoveKeySlot(ctx context.Context, idPrefix string) (removedID string, wasCurrent bool, err error) {
+	slots, err := listKeySlots(ctx, r.be)
+	if err != nil {
+		return "", false, err
+	}
+	if len(slots) <= 1 {
+		return "", false, ErrLastKeySlot
+	}
+	target, err := findSlotByID(slots, idPrefix)
+	if err != nil {
+		return "", false, err
+	}
+	if err := r.be.Delete(ctx, target.backendKey); err != nil {
+		return "", false, err
+	}
+	return target.kf.ID, target.kf.ID == r.openedKeyID, nil
+}
 
 // Close flushes and closes the underlying backend.
 func (r *Repository) Close(ctx context.Context) error {

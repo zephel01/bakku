@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Multiple key slots per repository: `key add` / `key list` / `key remove`
+  (all `--json`). Every slot wraps the same master key with its own password,
+  so losing one key still lets you open the repository with another. The last
+  remaining slot cannot be removed. Key files gained a `type` field; v0.1.0
+  key files (no `type`) are read as `password` slots (backward compatible).
+- Flexible password resolution: `--password-command` global flag and
+  `password_command` config key (global and per-`[[dest]]`) run an external
+  command (1Password `op`, Bitwarden `bw`, `pass`, …) whose first stdout line
+  is the password.
+- OS keychain integration via `github.com/zalando/go-keyring` (cgo-free):
+  `password store` / `password forget` save and remove the repository password
+  in the macOS Keychain, Windows Credential Manager, or Linux Secret Service.
+  Missing entries or a headless host silently fall through to the next source.
+- Password resolution order is now: `BAKKU_PASSWORD` → `--password-file` →
+  `--password-command` → config `password_command` (per-dest → global) → OS
+  keychain → interactive prompt.
+- YubiKey challenge-response key slots (`yubikey-chalresp`): `key add
+  --yubikey [--yubikey-slot N]` registers a passwordless slot using the
+  YubiKey's HMAC-SHA1 OTP challenge-response (same scheme as KeePassXC),
+  driven through `ykchalresp` (yubikey-personalization) or `ykman`
+  (yubikey-manager) — no cgo, no new Go dependency. The global `--yubikey`
+  flag unlocks with a registered YubiKey instead of a password; without the
+  flag, bakku auto-falls-back to YubiKey unlock if password resolution fails
+  and a YubiKey tool/slot is available. `key list` shows the slot type; `key
+  add --yubikey` and `key remove` warn (and `key remove` requires `--force`)
+  when an operation would leave the repository with no password slot at all.
+  See docs/quickguide.md § 13 for setup.
+
 ## [0.1.0] - 2026-07-03
 
 Initial release.
