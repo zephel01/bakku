@@ -95,7 +95,7 @@ bakku restore a1b2c3d4 --repo laptop --target /tmp/restore
 
 グローバルフラグ: `--repo` / `--config` / `--password-file` / `--password-command` / `--json`(機械可読出力)。`backup`・`prune` は `--no-notify` も受け付けます。
 
-全オプションの意味・デフォルト値・注意点は **[コマンドリファレンス(docs/commands.md)](docs/commands.md)** を参照してください。
+全オプションの意味・デフォルト値・注意点は **[コマンドリファレンス(docs/commands.md)](docs/commands.md)** を、利用シーン別のレシピとトラブル対処は **[事例集(docs/cookbook.md)](docs/cookbook.md)** を参照してください。
 
 ### 🔑 鍵スロット(鍵を失っても別の鍵で開ける)
 
