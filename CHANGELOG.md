@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-03
+
 ### Added
 
 - Multiple key slots per repository: `key add` / `key list` / `key remove`
@@ -36,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add --yubikey` and `key remove` warn (and `key remove` requires `--force`)
   when an operation would leave the repository with no password slot at all.
   See docs/quickguide.md § 13 for setup.
+- Documentation: full command reference (docs/commands.md) covering every
+  command, flag meaning/default, password resolution order, and environment
+  variables; user quick guide (docs/quickguide.md); English README
+  (README.en.md).
+
+### Fixed
+
+- CLI e2e tests built repository URLs as `"file://" + path`, which produced
+  an invalid URL on Windows (`file://C:\...`) and failed the windows-latest
+  CI job; tests now use the plain-path repo spec.
 
 ## [0.1.0] - 2026-07-03
 
@@ -63,5 +75,6 @@ Initial release.
 - CI (3-OS test matrix, 6-target cross-build) and release automation
   (`scripts/build-release.sh`, binaries attached on `v*` tags).
 
-[Unreleased]: https://github.com/zephel01/bakku/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zephel01/bakku/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zephel01/bakku/releases/tag/v0.1.0
