@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-03
+
+### Fixed
+
+- `bakku version` / `--version` printed `dev (commit none, built unknown)` for
+  binaries built without release ldflags. Version metadata now falls back to
+  the Go toolchain's embedded build info: `go install .../cmd/bakku@vX.Y.Z`
+  reports the module version, and a plain `go build` inside a git checkout
+  reports the commit/date (with a `-dirty` suffix for modified worktrees).
+  ldflags-injected values still take precedence, and unknown fields are
+  omitted from the output.
+
 ## [0.2.0] - 2026-07-03
 
 ### Added
@@ -75,6 +87,7 @@ Initial release.
 - CI (3-OS test matrix, 6-target cross-build) and release automation
   (`scripts/build-release.sh`, binaries attached on `v*` tags).
 
-[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/zephel01/bakku/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zephel01/bakku/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zephel01/bakku/releases/tag/v0.1.0
