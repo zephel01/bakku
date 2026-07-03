@@ -78,7 +78,7 @@ bakku backup <paths...> --repo <dest|URL> [flags]
 | オプション | 意味 |
 |---|---|
 | `--tag <t>` | スナップショットに付けるタグ。複数指定可(`--tag daily --tag docs`)。`forget --keep-tag` での保護や一覧での識別に使う |
-| `--exclude <glob>` | 除外するパスのglobパターン。複数指定可(例: `--exclude '**/node_modules/**'`) |
+| `--exclude <glob>` | 除外するパスのglobパターン。複数指定可(例: `--exclude '**/node_modules/**'`)。`**` はディレクトリ階層をまたいでマッチ(doublestar)。`/` を含まないパターン(例: `*.log`)はファイル名(ベース名)にもマッチ |
 | `--parallel <n>` | ワーカーgoroutine数。0(デフォルト)は自動 |
 | `--no-notify` | この実行に限り、設定済みWebhook通知を送らない |
 | `--use-vss` | (Windows) ボリュームシャドウコピーの使用を試みる。**現在は未実装のスタブ**: 警告を出してVSSなしで続行する |
@@ -96,7 +96,7 @@ bakku restore <snapshot-id> --repo <dest|URL> --target <dir> [flags]
 | オプション | 意味 |
 |---|---|
 | `--target <dir>` | **必須**。復元先ディレクトリ。既存ファイルへの直接上書きを避けるため、空/新規のディレクトリ推奨 |
-| `--include <glob>` | 指定パターンに一致するファイルのみ復元。複数指定可(例: `--include '**/report.xlsx'`) |
+| `--include <glob>` | 指定パターンに一致するファイルのみ復元。複数指定可(例: `--include '**/report.xlsx'`)。`**` はディレクトリ階層をまたいでマッチ(doublestar)。`/` を含まないパターン(例: `*.txt`)はファイル名(ベース名)にもマッチ |
 | `--chown` | ファイル所有者(uid/gid)も復元する。root/Administrator実行時のみ有効、それ以外では黙って無視される |
 | `--restore-quarantine` | (macOS) `com.apple.quarantine` 拡張属性も復元する。デフォルトでは除外(復元したアプリ/文書がGatekeeperに再ブロックされるのを防ぐため) |
 

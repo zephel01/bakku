@@ -18,6 +18,7 @@ import (
 
 	"github.com/zephel01/bakku/internal/chunker"
 	bfs "github.com/zephel01/bakku/internal/fs"
+	"github.com/zephel01/bakku/internal/globmatch"
 	"github.com/zephel01/bakku/internal/repo"
 )
 
@@ -321,20 +322,16 @@ func (a *Archiver) archiveFile(ctx context.Context, path string, stats *Stats) (
 	return ids, nil
 }
 
-// isExcluded reports whether path matches any exclude glob (checked against the
-// base name and the full path).
+// isExcluded reports whether path matches any exclude glob. Matching is
+// delegated to internal/globmatch, which supports `**` (crossing directory
+// boundaries, e.g. `**/node_modules/**`) and preserves the historical
+// behaviour of matching against both the base name and the full path. An
+// invalid glob is skipped (it never excludes anything) rather than aborting the
+// backup, matching the previous silent behaviour.
 func isExcluded(path string, excludes []string) bool {
 	if len(excludes) == 0 {
 		return false
 	}
-	base := filepath.Base(path)
-	for _, pat := range excludes {
-		if ok, _ := filepath.Match(pat, base); ok {
-			return true
-		}
-		if ok, _ := filepath.Match(pat, path); ok {
-			return true
-		}
-	}
-	return false
+	ok, _ := globmatch.MatchAny(excludes, path)
+	return ok
 }

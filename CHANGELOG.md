@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-04
+
+### Fixed
+
+- Glob patterns using `**` now match across directory boundaries in both
+  `backup --exclude` and `restore --include`. Previously the matcher used
+  `path/filepath.Match`, which does not understand `**`, so documented patterns
+  like `--exclude '**/node_modules/**'` and `--include '**/report.xlsx'` never
+  matched. This was a silent failure for excludes (files intended to be skipped
+  were backed up anyway). Matching is now handled by
+  `github.com/bmatcuk/doublestar/v4` via a shared `internal/globmatch` helper;
+  base-name and full-path matching behaviour for existing non-`**` patterns is
+  unchanged.
+- Partial restores that include only one side of a hard-link pair no longer
+  fail. Previously, if the included file's tree node was the hard-link (its
+  content living on the excluded partner node), restore aborted with
+  `1 hard link(s) could not resolve target(s)` and produced zero files. The
+  restorer now records every content-bearing file node during the tree walk and,
+  when a hard-link target is outside the include set, writes that content
+  directly so the included file is restored as an independent regular file. Only
+  genuinely unrecoverable links are reported as non-fatal warnings (the restore
+  still succeeds). Full restores continue to recreate real hard links (same
+  inode).
+
 ## [0.2.1] - 2026-07-03
 
 ### Fixed
@@ -87,7 +111,8 @@ Initial release.
 - CI (3-OS test matrix, 6-target cross-build) and release automation
   (`scripts/build-release.sh`, binaries attached on `v*` tags).
 
-[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/zephel01/bakku/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/zephel01/bakku/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zephel01/bakku/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zephel01/bakku/releases/tag/v0.1.0
