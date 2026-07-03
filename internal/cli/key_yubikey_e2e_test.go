@@ -61,7 +61,8 @@ func TestE2EKeyAddYubiKeyCLI(t *testing.T) {
 	installFakeYkchalresp(t, hex.EncodeToString([]byte("cli-e2e-secret")))
 
 	dir := t.TempDir()
-	repoURL := "file://" + dir
+	// Plain path form: file:// + Windows path would produce an invalid URL.
+	repoURL := dir
 
 	t.Setenv("BAKKU_PASSWORD", "only-password")
 	if out, err := runCLI(t, "--repo", repoURL, "init"); err != nil {
