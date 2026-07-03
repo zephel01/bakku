@@ -95,6 +95,8 @@ bakku restore a1b2c3d4 --repo laptop --target /tmp/restore
 
 グローバルフラグ: `--repo` / `--config` / `--password-file` / `--password-command` / `--json`(機械可読出力)。`backup`・`prune` は `--no-notify` も受け付けます。
 
+全オプションの意味・デフォルト値・注意点は **[コマンドリファレンス(docs/commands.md)](docs/commands.md)** を参照してください。
+
 ### 🔑 鍵スロット(鍵を失っても別の鍵で開ける)
 
 全スロットが同一マスターキーをそれぞれのパスワードでラップするため、どれか 1 つの鍵でリポジトリを開けます。最後の 1 スロットは削除できません。
