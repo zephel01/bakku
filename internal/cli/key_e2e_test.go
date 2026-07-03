@@ -38,7 +38,9 @@ func runCLI(t *testing.T, args ...string) (string, error) {
 // key, verify both open, remove one, verify the remaining opens.
 func TestE2EKeyLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	repoURL := "file://" + dir
+	// Use the plain path form (supported alongside file:// URLs): building a
+	// file:// URL by string concatenation breaks on Windows paths like C:\...
+	repoURL := dir
 
 	// init with the first password.
 	t.Setenv("BAKKU_PASSWORD", "pw-one")
