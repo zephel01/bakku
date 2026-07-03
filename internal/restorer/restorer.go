@@ -10,6 +10,7 @@ import (
 	"time"
 
 	bfs "github.com/zephel01/bakku/internal/fs"
+	"github.com/zephel01/bakku/internal/globmatch"
 	"github.com/zephel01/bakku/internal/repo"
 )
 
@@ -45,6 +46,15 @@ type Restorer struct {
 	linkTargets  map[string]string
 	pendingLinks []pendingLink
 
+	// contentNodes maps every content-bearing file node's snapshot-relative
+	// path (slash-separated) to its node, recorded during the tree walk
+	// regardless of the include filter. It lets resolvePendingLinks fall back
+	// to writing a hard-link node's content directly when its target file was
+	// excluded from the restore (partial restore of one side of a hard-link
+	// pair): the included node becomes an independent regular file rather than
+	// failing the whole restore.
+	contentNodes map[string]repo.Node
+
 	// warnings accumulates non-fatal metadata-restore issues (failed chown,
 	// failed setxattr, etc.) from the most recent Restore call.
 	warnings []string
@@ -71,20 +81,28 @@ func (rs *Restorer) Restore(ctx context.Context, snap *repo.Snapshot, opts Optio
 		return err
 	}
 	rs.linkTargets = make(map[string]string)
+	rs.contentNodes = make(map[string]repo.Node)
 	rs.pendingLinks = nil
 	rs.warnings = nil
 
 	if err := rs.restoreNodes(ctx, nodes, opts.Target, "", opts); err != nil {
 		return err
 	}
-	return rs.resolvePendingLinks(opts)
+	return rs.resolvePendingLinks(ctx, opts)
 }
 
 // resolvePendingLinks creates hard links deferred during the main walk. It
 // loops until no progress is made, so links may resolve in any discovery
 // order (including targets that are themselves hard-link nodes chained
 // transitively, though the archiver never produces chains today).
-func (rs *Restorer) resolvePendingLinks(opts Options) error {
+//
+// When a pending link's target was not restored (typically a partial restore
+// that included only one side of a hard-link pair, so the target lives outside
+// the include set), the link is materialized as an independent regular file by
+// writing the target node's recorded content directly. Only if the target's
+// content is genuinely unavailable is the link left unresolved and reported as
+// a non-fatal warning, so the restore still succeeds (exit 0).
+func (rs *Restorer) resolvePendingLinks(ctx context.Context, opts Options) error {
 	remaining := rs.pendingLinks
 	for len(remaining) > 0 {
 		var next []pendingLink
@@ -103,14 +121,49 @@ func (rs *Restorer) resolvePendingLinks(opts Options) error {
 			progress = true
 		}
 		if !progress {
-			// Target never materialized (e.g. excluded by includes, or failed to
-			// restore). Leave these links unresolved but do not fail the whole
-			// restore; report as an error listing the missing targets.
+			// No pending link could resolve against an already-restored target.
+			// Fall back to writing content directly for those whose target node
+			// was recorded during the walk (the target was excluded from this
+			// restore). This lets a partial restore of one side of a hard-link
+			// pair succeed as an independent regular file.
+			for _, pl := range next {
+				if srcNode, ok := rs.contentNodes[pl.target]; ok {
+					// Reconstruct the file at pl.dst from the target's content,
+					// but keep this node's own metadata (mode/mtime/owner).
+					fileNode := pl.node
+					fileNode.LinkTo = ""
+					fileNode.Content = srcNode.Content
+					if err := rs.restoreFile(ctx, pl.dst, fileNode, opts); err != nil {
+						return err
+					}
+					// Record it so any further pending links to this path (rare)
+					// can now hard-link to the newly written file.
+					rs.linkTargets[pl.target] = pl.dst
+					progress = true
+				}
+			}
+			if progress {
+				// contentNodes fallback made progress; drop the resolved links
+				// and continue so remaining pending links (if any) can retry.
+				var stillPending []pendingLink
+				for _, pl := range next {
+					if _, done := rs.linkTargets[pl.target]; !done {
+						stillPending = append(stillPending, pl)
+					}
+				}
+				remaining = stillPending
+				continue
+			}
+			// Target content genuinely unavailable: do not fail the restore.
+			// Record a warning per unresolved link and stop.
 			missing := make([]string, 0, len(next))
 			for _, pl := range next {
 				missing = append(missing, pl.target)
+				rs.warnings = append(rs.warnings, fmt.Sprintf(
+					"hard link %s could not resolve target %q (target not restored and its content is unavailable); skipped",
+					pl.dst, pl.target))
 			}
-			return fmt.Errorf("restorer: %d hard link(s) could not resolve target(s): %v", len(missing), missing)
+			return nil
 		}
 		remaining = next
 	}
@@ -152,6 +205,13 @@ func (rs *Restorer) restoreNodes(ctx context.Context, nodes []repo.Node, dir, re
 			// skipped here since symlink ownership is rarely security-relevant.
 
 		case repo.NodeFile:
+			// Record every content-bearing file node (independent of the
+			// include filter) so a hard-link node whose target is excluded can
+			// still be resolved by writing that content directly. Nodes with a
+			// LinkTo carry no content and are skipped here.
+			if n.LinkTo == "" && len(n.Content) > 0 {
+				rs.contentNodes[nodeRelSlash] = n
+			}
 			if !included(nodeRel, opts.Includes) {
 				continue
 			}
@@ -221,21 +281,15 @@ func applyMeta(dst string, n repo.Node, opts Options) []string {
 }
 
 // included reports whether relPath should be restored given the include globs.
-// With no includes, everything is included.
+// With no includes, everything is included. Matching is delegated to
+// internal/globmatch, which supports `**` (e.g. `--include '**/report.xlsx'`)
+// and preserves the historical base-name and full-path matching behaviour.
 func included(relPath string, includes []string) bool {
 	if len(includes) == 0 {
 		return true
 	}
-	base := filepath.Base(relPath)
-	for _, pat := range includes {
-		if ok, _ := filepath.Match(pat, base); ok {
-			return true
-		}
-		if ok, _ := filepath.Match(pat, relPath); ok {
-			return true
-		}
-	}
-	return false
+	ok, _ := globmatch.MatchAny(includes, relPath)
+	return ok
 }
 
 // Walk lists the entries of a snapshot (for `bakku ls`) invoking fn for each

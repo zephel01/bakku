@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.27
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.2
 	github.com/aws/smithy-go v1.27.3
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cloudsoda/go-smb2 v0.0.0-20260701064823-d8c5600d73b8
 	github.com/dropbox/dropbox-sdk-go-unofficial/v6 v6.2.0
 	github.com/klauspost/compress v1.19.0
