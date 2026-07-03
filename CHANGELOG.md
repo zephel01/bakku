@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-04
+
 ### Fixed
 
 - Glob patterns using `**` now match across directory boundaries in both
@@ -109,7 +111,8 @@ Initial release.
 - CI (3-OS test matrix, 6-target cross-build) and release automation
   (`scripts/build-release.sh`, binaries attached on `v*` tags).
 
-[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/zephel01/bakku/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/zephel01/bakku/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zephel01/bakku/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zephel01/bakku/releases/tag/v0.1.0
