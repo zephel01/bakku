@@ -14,9 +14,11 @@ import (
 //
 //	go build -ldflags "-X main.version=v1.2.3 -X main.commit=<sha> -X main.date=<rfc3339>"
 //
-// They default to "dev"/"none"/"unknown" for local `go build`/`go run` and
-// `go install github.com/zephel01/bakku/cmd/bakku@latest` (which does not run
-// our release ldflags).
+// They default to "dev"/"none"/"unknown"; cli.ResolveBuildInfo then fills any
+// still-default field from the Go toolchain's embedded build metadata, so
+// `go install .../cmd/bakku@vX.Y.Z` reports vX.Y.Z and a plain `go build`
+// inside a git checkout reports the commit, without needing our release
+// ldflags.
 var (
 	version = "dev"
 	commit  = "none"
@@ -27,7 +29,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	root := cli.NewRootCmd(cli.BuildInfo{Version: version, Commit: commit, Date: date})
+	root := cli.NewRootCmd(cli.ResolveBuildInfo(cli.BuildInfo{Version: version, Commit: commit, Date: date}))
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

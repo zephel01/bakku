@@ -35,8 +35,20 @@ type BuildInfo struct {
 }
 
 // String renders build info as bakku's standard `--version`/`version` line.
+// Fields still at their unknown defaults are omitted rather than printed as
+// "none"/"unknown" (e.g. module builds via `go install` have a version but no
+// VCS metadata).
 func (b BuildInfo) String() string {
-	return fmt.Sprintf("bakku %s (commit %s, built %s)", b.Version, b.Commit, b.Date)
+	s := "bakku " + b.Version
+	switch {
+	case b.Commit != noCommit && b.Date != unknownDate:
+		s += fmt.Sprintf(" (commit %s, built %s)", b.Commit, b.Date)
+	case b.Commit != noCommit:
+		s += fmt.Sprintf(" (commit %s)", b.Commit)
+	case b.Date != unknownDate:
+		s += fmt.Sprintf(" (built %s)", b.Date)
+	}
+	return s
 }
 
 // NewRootCmd builds the root command tree.
