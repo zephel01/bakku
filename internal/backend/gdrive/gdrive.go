@@ -38,6 +38,7 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 
+	"github.com/zephel01/bakku/internal/backend/keyguard"
 	"github.com/zephel01/bakku/internal/backend/retry"
 )
 
@@ -301,6 +302,9 @@ func (g *GDrive) resolveDir(ctx context.Context, dirs []string) (string, error) 
 // distinct file IDs in the general case, but delete+create keeps behavior
 // consistent with "a key either fully exists or not").
 func (g *GDrive) Save(ctx context.Context, key string, r io.Reader, size int64) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	dirs, name := splitKey(key)
 	if name == "" {
 		return fmt.Errorf("gdrive: invalid key %q", key)
@@ -327,6 +331,9 @@ func (g *GDrive) Save(ctx context.Context, key string, r io.Reader, size int64) 
 
 // Load returns a reader for [offset, offset+length) of key.
 func (g *GDrive) Load(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return nil, err
+	}
 	dirs, name := splitKey(key)
 	dirID, err := g.resolveDirReadOnly(ctx, dirs)
 	if err != nil {
@@ -409,6 +416,9 @@ func (g *GDrive) resolveRootReadOnly(ctx context.Context) (string, error) {
 
 // Stat returns the size of key.
 func (g *GDrive) Stat(ctx context.Context, key string) (int64, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return 0, err
+	}
 	dirs, name := splitKey(key)
 	dirID, err := g.resolveDirReadOnly(ctx, dirs)
 	if err != nil {
@@ -438,6 +448,9 @@ func (g *GDrive) Stat(ctx context.Context, key string) (int64, error) {
 
 // List calls fn for every file under prefix, recursing into subfolders.
 func (g *GDrive) List(ctx context.Context, prefix string, fn func(key string, size int64) error) error {
+	if err := keyguard.Validate(prefix); err != nil {
+		return err
+	}
 	dirs, name := splitKey(prefix)
 	if name != "" {
 		dirs = append(dirs, name)
@@ -489,6 +502,9 @@ func (g *GDrive) walk(ctx context.Context, dirID, keyPrefix string, fn func(key 
 
 // Delete removes key. A missing key is not an error.
 func (g *GDrive) Delete(ctx context.Context, key string) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	dirs, name := splitKey(key)
 	dirID, err := g.resolveDirReadOnly(ctx, dirs)
 	if err != nil {

@@ -134,6 +134,7 @@ func (passwordProvider) CreateSlot(password, masterKey []byte) (keyFile, error) 
 	params := crypto.DefaultKDFParams()
 	kek := crypto.DeriveKEK(password, salt, params)
 	wrapped, err := crypto.Seal(kek, masterKey, nil)
+	crypto.Wipe(kek) // KEK no longer needed once the master key is wrapped
 	if err != nil {
 		return keyFile{}, err
 	}
@@ -164,6 +165,7 @@ func (passwordProvider) UnlockSlot(kf keyFile, password []byte) ([]byte, error) 
 	}
 	kek := crypto.DeriveKEK(password, salt, kf.KDFParams)
 	mk, err := crypto.Open(kek, wrapped, nil)
+	crypto.Wipe(kek) // KEK no longer needed once the master key is unwrapped
 	if err != nil {
 		return nil, ErrWrongPassword
 	}

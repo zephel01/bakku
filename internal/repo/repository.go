@@ -427,7 +427,9 @@ func (r *Repository) RemoveKeySlot(ctx context.Context, idPrefix string) (remove
 	return target.kf.ID, target.kf.ID == r.openedKeyID, nil
 }
 
-// Close flushes and closes the underlying backend.
+// Close flushes and closes the underlying backend, then wipes the in-memory
+// master key and derived subkeys so they do not linger in the heap after the
+// repository is done (best-effort defense in depth; see crypto.Wipe).
 func (r *Repository) Close(ctx context.Context) error {
 	err := r.Flush(ctx)
 	if r.pack != nil {
@@ -436,6 +438,11 @@ func (r *Repository) Close(ctx context.Context) error {
 	if cerr := r.be.Close(); err == nil {
 		err = cerr
 	}
+	crypto.Wipe(r.master)
+	crypto.Wipe(r.dataKey)
+	crypto.Wipe(r.indexKey)
+	crypto.Wipe(r.snapKey)
+	crypto.Wipe(r.chunkKey)
 	return err
 }
 

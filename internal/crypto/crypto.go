@@ -64,6 +64,18 @@ func randomBytes(n int) ([]byte, error) {
 	return b, nil
 }
 
+// Wipe overwrites b with zeros. It is used to clear transient key material
+// (KEKs, derived subkeys, master keys, passwords) from memory as soon as it is
+// no longer needed, reducing the window in which secrets could leak via a core
+// dump or swap. This is best-effort defense in depth: Go's garbage collector
+// may still have moved copies, and immutable strings cannot be wiped, so
+// callers should prefer []byte for secrets. Safe to call on a nil slice.
+func Wipe(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // DeriveSubKey derives a purpose-specific 32-byte subkey from the master key
 // using BLAKE3's key-derivation mode with the given context string. The context
 // must be a fixed, application-unique, hard-coded string per purpose.
