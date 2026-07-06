@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/zephel01/bakku/internal/crypto"
+	bfs "github.com/zephel01/bakku/internal/fs"
 	"github.com/zephel01/bakku/internal/repo"
 	"github.com/zephel01/bakku/internal/restorer"
 )
@@ -148,6 +149,11 @@ func newVerifyRestoreCmd() *cobra.Command {
 func verifyAndRestoreFile(cmd *cobra.Command, r *repo.Repository, tmp, relPath string, n repo.Node) (int64, error) {
 	ctx := cmd.Context()
 	dst := filepath.Join(tmp, relPath)
+	// Confine the write to the temp sandbox: a crafted/corrupted snapshot could
+	// carry a relPath with ".." or an absolute component (path traversal).
+	if !bfs.WithinRoot(tmp, dst) {
+		return 0, fmt.Errorf("unsafe path %q in snapshot", relPath)
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return 0, err
 	}

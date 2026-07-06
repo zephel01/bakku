@@ -39,6 +39,11 @@ type pendingLink struct {
 type Restorer struct {
 	repo *repo.Repository
 
+	// target is the cleaned restore root. Every destination path is confined
+	// to this root (see fs.SafeJoin) so a crafted/corrupted snapshot cannot
+	// write outside it via ".." or absolute entry names (path traversal).
+	target string
+
 	// linkTargets maps a snapshot-relative path (slash-separated) to the
 	// restored filesystem path, populated as regular files are written so
 	// hard-link nodes (LinkTo) can resolve their target.
@@ -66,6 +71,7 @@ func (rs *Restorer) Restore(ctx context.Context, snap *repo.Snapshot, opts Optio
 	if err := os.MkdirAll(opts.Target, 0o755); err != nil {
 		return err
 	}
+	rs.target = filepath.Clean(opts.Target)
 	nodes, err := rs.repo.LoadTree(ctx, snap.Tree)
 	if err != nil {
 		return err
@@ -121,7 +127,10 @@ func (rs *Restorer) resolvePendingLinks(opts Options) error {
 // prefix used for include matching.
 func (rs *Restorer) restoreNodes(ctx context.Context, nodes []repo.Node, dir, relPath string, opts Options) error {
 	for _, n := range nodes {
-		dst := filepath.Join(dir, n.Name)
+		dst, err := bfs.SafeJoin(rs.target, dir, n.Name)
+		if err != nil {
+			return fmt.Errorf("restorer: %w", err)
+		}
 		nodeRel := filepath.Join(relPath, n.Name)
 		nodeRelSlash := filepath.ToSlash(nodeRel)
 		switch n.Type {

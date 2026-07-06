@@ -9,8 +9,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -41,6 +45,25 @@ type Config struct {
 
 // Enabled reports whether notification is configured at all.
 func (c Config) Enabled() bool { return c.WebhookURL != "" }
+
+// ValidateWebhookURL checks that raw is a syntactically valid webhook endpoint
+// with an http(s) scheme and a host. It is called at send time (and can be
+// used at config-write time) to reject malformed or non-web URLs before any
+// request is issued. The connect-time SSRF guard (see newSafeClient) enforces
+// the public-address policy separately.
+func ValidateWebhookURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("notify: invalid webhook_url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("notify: webhook_url must use http or https scheme, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("notify: webhook_url has no host")
+	}
+	return nil
+}
 
 // Event describes a completed job for notification purposes.
 type Event struct {
@@ -85,6 +108,58 @@ type Notifier struct {
 	client *http.Client
 }
 
+// allowPrivateWebhook reports whether the SSRF guard is disabled via
+// BAKKU_NOTIFY_ALLOW_PRIVATE=1. Users who post to a self-hosted webhook on an
+// internal/private address must opt in explicitly.
+func allowPrivateWebhook() bool { return os.Getenv("BAKKU_NOTIFY_ALLOW_PRIVATE") == "1" }
+
+// isBlockedIP reports whether ip is a non-public address that the webhook
+// client refuses to connect to by default (SSRF guard). This covers loopback,
+// link-local (including the 169.254.169.254 cloud-metadata endpoint),
+// RFC1918/RFC4193 private ranges, the unspecified address and multicast.
+func isBlockedIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsPrivate()
+}
+
+// newSafeClient builds an HTTP client whose dialer inspects the resolved IP at
+// connect time and refuses non-public destinations unless allowPrivate is set.
+// Checking at dial time (rather than parsing the URL) also defeats DNS
+// rebinding and validates every redirect hop, since each hop dials afresh.
+func newSafeClient(timeout time.Duration, allowPrivate bool) *http.Client {
+	d := &net.Dialer{Timeout: 30 * time.Second}
+	if !allowPrivate {
+		d.Control = func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				return fmt.Errorf("notify: cannot parse dial address %q", host)
+			}
+			if isBlockedIP(ip) {
+				return fmt.Errorf("notify: refusing to connect to non-public address %s (SSRF guard); set BAKKU_NOTIFY_ALLOW_PRIVATE=1 to allow", ip)
+			}
+			return nil
+		}
+	}
+	tr := &http.Transport{
+		DialContext:           d.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          10,
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return &http.Client{Timeout: timeout, Transport: tr}
+}
+
 // New returns a Notifier for cfg. If cfg is not Enabled(), the returned
 // Notifier's Send is always a no-op (safe to call unconditionally).
 func New(cfg Config) *Notifier {
@@ -94,7 +169,7 @@ func New(cfg Config) *Notifier {
 	}
 	return &Notifier{
 		cfg:    cfg,
-		client: &http.Client{Timeout: timeout},
+		client: newSafeClient(timeout, allowPrivateWebhook()),
 	}
 }
 
@@ -122,6 +197,10 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 	success := ev.Status == "success"
 	if !n.ShouldNotify(success) {
 		return nil
+	}
+
+	if err := ValidateWebhookURL(n.cfg.WebhookURL); err != nil {
+		return err
 	}
 
 	body, contentType, err := buildPayload(n.cfg.resolvedFormat(), ev)

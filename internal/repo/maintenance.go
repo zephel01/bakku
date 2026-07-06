@@ -111,12 +111,11 @@ func (r *Repository) VerifyPack(ctx context.Context, packID string) []error {
 	}
 	var errs []error
 	for _, e := range entries {
-		end := e.Offset + e.Length
-		if e.Offset < 0 || end > int64(len(packBytes)) {
+		if !validBlobRange(e.Offset, e.Length, int64(len(packBytes))) {
 			errs = append(errs, fmt.Errorf("pack %s: blob %s: offset/length out of range", short(packID), short(e.ID)))
 			continue
 		}
-		plain, err := decodeBlob(r.dataKey, packBytes[e.Offset:end])
+		plain, err := decodeBlob(r.dataKey, packBytes[e.Offset:e.Offset+e.Length])
 		if err != nil {
 			errs = append(errs, fmt.Errorf("pack %s: blob %s: decode: %w", short(packID), short(e.ID), err))
 			continue
@@ -155,6 +154,9 @@ func (ix *Index) All() map[string]IndexLocation {
 // LoadBlobFromPack reads a single blob directly from a specific pack location,
 // bypassing the index. Used during repack when the working index may be in flux.
 func (r *Repository) LoadBlobFromPack(ctx context.Context, loc IndexLocation) ([]byte, error) {
+	if !validBlobRange(loc.Offset, loc.Length, -1) {
+		return nil, fmt.Errorf("repo: blob %s has invalid offset/length", short(loc.PackID))
+	}
 	rc, err := r.be.Load(ctx, PackKey(loc.PackID), loc.Offset, loc.Length)
 	if err != nil {
 		return nil, err

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/zephel01/bakku/internal/crypto"
@@ -149,15 +150,42 @@ func PackKey(packID string) string {
 
 // --- pack reading ---
 
+// maxDecompressedBlobSize caps the decoded size of any single blob to bound
+// memory use. A blob is at most one content chunk (chunker max 8 MiB) or a
+// tree/snapshot JSON; 512 MiB is far above any legitimate blob yet stops a
+// zstd "decompression bomb" — a small, validly-encrypted ciphertext that
+// expands to many gigabytes — from exhausting memory during restore/verify.
+const maxDecompressedBlobSize = 512 << 20 // 512 MiB
+
 // zstd decoder shared for reads; safe for concurrent use.
 var packDecoder *zstd.Decoder
 
 func init() {
-	d, err := zstd.NewReader(nil)
+	d, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecompressedBlobSize))
 	if err != nil {
 		panic(err)
 	}
 	packDecoder = d
+}
+
+// validBlobRange reports whether a blob's recorded offset/length are
+// self-consistent: non-negative offset, positive length, and no int64 overflow
+// when summed. When the containing pack size is known, pass it as packLen (>= 0)
+// to also confirm the range lies within the pack; pass -1 when the size is not
+// available (e.g. a ranged backend read). Offsets/lengths originate from index
+// or pack-header data that a malicious storage server could tamper with, so
+// every consumer must validate before slicing or issuing a ranged read.
+func validBlobRange(offset, length, packLen int64) bool {
+	if offset < 0 || length <= 0 {
+		return false
+	}
+	if offset > math.MaxInt64-length { // overflow guard for offset+length
+		return false
+	}
+	if packLen >= 0 && offset+length > packLen {
+		return false
+	}
+	return true
 }
 
 // decodeBlob decrypts+decompresses a single sealed blob read from a pack.
@@ -180,7 +208,10 @@ func readPackHeader(dataKey, packBytes []byte) ([]blobEntry, error) {
 		return nil, errors.New("repo: pack too short")
 	}
 	hlen := binary.BigEndian.Uint32(packBytes[len(packBytes)-4:])
-	if int(hlen)+4 > len(packBytes) {
+	// Compare in 64-bit to avoid uint32->int narrowing overflow on 32-bit
+	// builds (where a header length > MaxInt32 would wrap negative and defeat
+	// the bounds check, causing a slice-bounds panic / DoS).
+	if uint64(hlen)+4 > uint64(len(packBytes)) {
 		return nil, errors.New("repo: pack header length out of range")
 	}
 	start := len(packBytes) - 4 - int(hlen)

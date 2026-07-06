@@ -269,6 +269,9 @@ func (r *Repository) LoadBlob(ctx context.Context, id string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("repo: blob %s not found in index", short(id))
 	}
+	if !validBlobRange(loc.Offset, loc.Length, -1) {
+		return nil, fmt.Errorf("repo: blob %s has invalid offset/length in index", short(id))
+	}
 	rc, err := r.be.Load(ctx, PackKey(loc.PackID), loc.Offset, loc.Length)
 	if err != nil {
 		return nil, err
