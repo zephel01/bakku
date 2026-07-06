@@ -31,7 +31,10 @@ func New(dir string) (*Local, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(abs, 0o755); err != nil {
+	// 0700: a repository holds encrypted blobs, but key names, object sizes and
+	// the overall structure are metadata that should not leak to other local
+	// users. Restrict the repo tree to the owner.
+	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, err
 	}
 	return &Local{root: abs}, nil
@@ -47,7 +50,7 @@ func (l *Local) Save(ctx context.Context, key string, r io.Reader, size int64) e
 	_ = ctx
 	_ = size
 	dst := l.path(key)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(dst), ".tmp-*")
