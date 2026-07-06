@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/zephel01/bakku/internal/backend/keyguard"
 )
 
 // errNotExist mirrors backend.ErrNotExist without importing the parent package
@@ -47,6 +49,9 @@ func (l *Local) path(key string) string {
 
 // Save writes r to key atomically via a temp file + rename.
 func (l *Local) Save(ctx context.Context, key string, r io.Reader, size int64) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	_ = ctx
 	_ = size
 	dst := l.path(key)
@@ -84,6 +89,9 @@ func (l *Local) Save(ctx context.Context, key string, r io.Reader, size int64) e
 // Load opens key and seeks to offset, returning a reader limited to length
 // bytes (or to EOF if length<0).
 func (l *Local) Load(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return nil, err
+	}
 	_ = ctx
 	f, err := os.Open(l.path(key))
 	if err != nil {
@@ -115,6 +123,9 @@ func (l *limitedFile) Close() error               { return l.f.Close() }
 
 // Stat returns the size of key.
 func (l *Local) Stat(ctx context.Context, key string) (int64, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return 0, err
+	}
 	_ = ctx
 	fi, err := os.Stat(l.path(key))
 	if err != nil {
@@ -129,6 +140,9 @@ func (l *Local) Stat(ctx context.Context, key string) (int64, error) {
 // List walks the tree under prefix and calls fn for each regular file, with the
 // '/'-separated key relative to root.
 func (l *Local) List(ctx context.Context, prefix string, fn func(key string, size int64) error) error {
+	if err := keyguard.Validate(prefix); err != nil {
+		return err
+	}
 	base := l.path(prefix)
 	return filepath.Walk(base, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -158,6 +172,9 @@ func (l *Local) List(ctx context.Context, prefix string, fn func(key string, siz
 
 // Delete removes key. A missing key is not an error.
 func (l *Local) Delete(ctx context.Context, key string) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	_ = ctx
 	err := os.Remove(l.path(key))
 	if err != nil && !os.IsNotExist(err) {

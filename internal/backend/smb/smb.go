@@ -24,6 +24,7 @@ import (
 
 	smb2 "github.com/cloudsoda/go-smb2"
 
+	"github.com/zephel01/bakku/internal/backend/keyguard"
 	"github.com/zephel01/bakku/internal/backend/retry"
 )
 
@@ -200,6 +201,9 @@ func (s *SMB) mkdirAll(dir string) error {
 
 // Save writes r to key atomically via a temp name + rename.
 func (s *SMB) Save(ctx context.Context, key string, r io.Reader, size int64) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	dst := s.smbPath(key)
 	dir := path.Dir(dst)
 
@@ -245,6 +249,9 @@ func (s *SMB) Save(ctx context.Context, key string, r io.Reader, size int64) err
 
 // Load returns a reader for [offset, offset+length) of key.
 func (s *SMB) Load(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return nil, err
+	}
 	p := s.smbPath(key)
 	var f *smb2.File
 	err := retry.Do(ctx, func(ctx context.Context) error {
@@ -287,6 +294,9 @@ func (l *limitedFile) Close() error               { return l.f.Close() }
 
 // Stat returns the size of key.
 func (s *SMB) Stat(ctx context.Context, key string) (int64, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return 0, err
+	}
 	p := s.smbPath(key)
 	var size int64
 	err := retry.Do(ctx, func(ctx context.Context) error {
@@ -312,6 +322,9 @@ func (s *SMB) Stat(ctx context.Context, key string) (int64, error) {
 // List calls fn for every regular file under prefix, recursing into
 // subdirectories.
 func (s *SMB) List(ctx context.Context, prefix string, fn func(key string, size int64) error) error {
+	if err := keyguard.Validate(prefix); err != nil {
+		return err
+	}
 	base := s.smbPath(prefix)
 	return s.walk(ctx, base, fn)
 }
@@ -349,6 +362,9 @@ func (s *SMB) walk(ctx context.Context, dir string, fn func(key string, size int
 
 // Delete removes key. A missing key is not an error.
 func (s *SMB) Delete(ctx context.Context, key string) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	p := s.smbPath(key)
 	return retry.Do(ctx, func(ctx context.Context) error {
 		err := s.share.Remove(p)

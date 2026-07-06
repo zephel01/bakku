@@ -13,9 +13,10 @@
 //     challenge-response since slot 1 is often the factory Yubico OTP
 //     credential). The YubiKey computes HMAC-SHA1(secret, challenge) with a
 //     secret that never leaves the hardware, returning a 20-byte response.
-//  3. The response is stretched into a key-encryption-key (KEK) via BLAKE3
-//     derive-key (see repo.deriveYubiKEK) and used to unwrap the repository
-//     master key exactly like a password-derived KEK.
+//  3. The response is stretched into a key-encryption-key (KEK) via HKDF-SHA256
+//     (see repo.deriveYubiKEKForSlot; slots created before v0.2.4 use a legacy
+//     BLAKE3 derive-key path) and used to unwrap the repository master key
+//     exactly like a password-derived KEK.
 //
 // The challenge is not secret: without the physical YubiKey (and its
 // programmed HMAC secret) it is computationally infeasible to reproduce the

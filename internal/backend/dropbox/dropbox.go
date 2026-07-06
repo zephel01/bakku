@@ -26,6 +26,7 @@ import (
 	"github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
 	"github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
 
+	"github.com/zephel01/bakku/internal/backend/keyguard"
 	"github.com/zephel01/bakku/internal/backend/retry"
 )
 
@@ -119,6 +120,9 @@ func overwriteMode() *files.WriteMode {
 // Save uploads r to key, splitting into an upload session if the payload
 // exceeds uploadSessionThreshold.
 func (d *Dropbox) Save(ctx context.Context, key string, r io.Reader, size int64) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	p := d.fullPath(key)
 
 	if size >= 0 && size <= uploadSessionThreshold {
@@ -223,6 +227,9 @@ func (d *Dropbox) finishUploadSession(ctx context.Context, sessionID string, off
 
 // Load returns a reader for [offset, offset+length) of key.
 func (d *Dropbox) Load(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return nil, err
+	}
 	p := d.fullPath(key)
 	var rc io.ReadCloser
 	err := retry.Do(ctx, func(ctx context.Context) error {
@@ -248,6 +255,9 @@ func (d *Dropbox) Load(ctx context.Context, key string, offset, length int64) (i
 
 // Stat returns the size of key.
 func (d *Dropbox) Stat(ctx context.Context, key string) (int64, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return 0, err
+	}
 	p := d.fullPath(key)
 	var size int64
 	err := retry.Do(ctx, func(ctx context.Context) error {
@@ -274,6 +284,9 @@ func (d *Dropbox) Stat(ctx context.Context, key string) (int64, error) {
 
 // List calls fn for every file under prefix (recursively).
 func (d *Dropbox) List(ctx context.Context, prefix string, fn func(key string, size int64) error) error {
+	if err := keyguard.Validate(prefix); err != nil {
+		return err
+	}
 	p := d.fullPath(prefix)
 	if p == "/" {
 		p = ""
@@ -336,6 +349,9 @@ func (d *Dropbox) List(ctx context.Context, prefix string, fn func(key string, s
 
 // Delete removes key. A missing key is not an error.
 func (d *Dropbox) Delete(ctx context.Context, key string) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	p := d.fullPath(key)
 	return retry.Do(ctx, func(ctx context.Context) error {
 		arg := files.NewDeleteArg(p)

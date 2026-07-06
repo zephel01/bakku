@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-06
+
+### Security
+
+- **YubiKey KEK now derived with HKDF-SHA256.** New `yubikey-chalresp` key slots
+  stretch the challenge-response into a KEK using standard HKDF (salt as the
+  HKDF salt, fixed context as info) instead of the previous BLAKE3
+  concatenation. **Backward compatible:** slots created by earlier versions are
+  marked/detected and keep unlocking via the legacy derivation, so existing
+  YubiKey-protected repositories open unchanged.
+- **In-memory key material is now wiped after use.** Password-derived KEKs and
+  YubiKey KEKs are zeroed immediately after wrapping/unwrapping the master key,
+  and the master key plus derived subkeys are zeroed on `Repository.Close`
+  (best-effort defense in depth; see `crypto.Wipe`).
+- **Backend storage keys are validated** to reject `..` path elements and
+  absolute paths at every backend entry point (local, SFTP, SMB, S3, Google
+  Drive, Dropbox), a defense-in-depth guard against traversal outside the
+  repository root / share subtree.
+- **SFTP prints a warning** to stderr when `BAKKU_SSH_INSECURE=1` disables host
+  key verification, so an accidentally-set insecure mode is visible.
+
+### Added
+
+- `docs/security.md`: security notes covering the cryptography overview,
+  AES-GCM nonce limits and rotation guidance for very large/long-lived
+  repositories, security-relevant environment variables, on-disk protection,
+  and restore safety.
+
+### Notes
+
+- No repository-format break: existing repositories (including YubiKey slots)
+  open unchanged. Newly created YubiKey slots use HKDF and cannot be opened by
+  bakku versions older than 0.2.4.
+
 ## [0.2.1] - 2026-07-03
 
 ### Fixed
@@ -87,7 +121,8 @@ Initial release.
 - CI (3-OS test matrix, 6-target cross-build) and release automation
   (`scripts/build-release.sh`, binaries attached on `v*` tags).
 
-[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/zephel01/bakku/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/zephel01/bakku/compare/v0.2.3...v0.2.4
 [0.2.1]: https://github.com/zephel01/bakku/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zephel01/bakku/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zephel01/bakku/releases/tag/v0.1.0

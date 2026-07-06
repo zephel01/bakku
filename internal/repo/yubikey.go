@@ -3,12 +3,15 @@ package repo
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"time"
+
+	"golang.org/x/crypto/hkdf"
 
 	"github.com/zephel01/bakku/internal/backend"
 	"github.com/zephel01/bakku/internal/crypto"
@@ -88,8 +91,9 @@ func (yubiKeyProvider) UnlockSlot(kf keyFile, credential []byte) ([]byte, error)
 	if err != nil {
 		return nil, fmt.Errorf("repo: corrupt key data: %w", err)
 	}
-	kek := deriveYubiKEK(credential, salt)
+	kek := deriveYubiKEKForSlot(kf, credential, salt)
 	mk, err := crypto.Open(kek, wrapped, nil)
+	crypto.Wipe(kek) // KEK no longer needed once the master key is unwrapped
 	if err != nil {
 		return nil, ErrWrongPassword
 	}
@@ -108,20 +112,46 @@ type yubiKeyCredential struct {
 	Response  []byte `json:"response"`  // the 20-byte HMAC-SHA1 response (secret material, never persisted)
 }
 
-// deriveYubiKEK stretches a YubiKey HMAC-SHA1 response (plus a random salt,
-// exactly like the password provider's argon2id salt) into a 32-byte KEK using
-// BLAKE3 derive-key. A response is already high-entropy (effectively a
-// hardware-backed 160-bit secret unknown to an attacker without the physical
-// key), so an expensive memory-hard KDF like argon2id is unnecessary here;
-// BLAKE3 derive-key is fast, standard, and reuses a primitive bakku already
-// depends on (see crypto.DeriveSubKey, same primitive/library).
-func deriveYubiKEK(response, salt []byte) []byte {
-	// BLAKE3 derive-key takes (context, key material); to fold in a per-slot
-	// salt without a second primitive, the salt is appended to the response
-	// before derivation. The context string itself stays fixed and
-	// application-unique per crypto.DeriveSubKey's contract.
+// yubiKeyKDFv2 is the value stored in a slot's Params["kdf"] to mark it as
+// using HKDF-SHA256 derivation (deriveYubiKEKHKDF). Slots written before
+// v0.2.4 have no such marker and use the legacy deriveYubiKEKLegacy path, so
+// existing YubiKey slots keep unlocking unchanged (backward compatible).
+const yubiKeyKDFv2 = "hkdf-sha256"
+
+// deriveYubiKEKHKDF stretches a YubiKey HMAC-SHA1 response into a 32-byte KEK
+// using HKDF-SHA256 with the per-slot random salt as the HKDF salt and the
+// fixed application context as the HKDF info. This is the standard
+// extract-then-expand construction for a high-entropy secret and uses the salt
+// correctly (as an independent input rather than concatenated key material).
+// Used for all slots created from v0.2.4 onward.
+func deriveYubiKEKHKDF(response, salt []byte) []byte {
+	kek := make([]byte, crypto.KeySize)
+	r := hkdf.New(sha256.New, response, salt, []byte(yubiKeyKDFContext))
+	if _, err := io.ReadFull(r, kek); err != nil {
+		// HKDF over a fixed 32-byte output never fails in practice; treat any
+		// failure as fatal misuse rather than returning a partial key.
+		panic("repo: HKDF KEK derivation failed: " + err.Error())
+	}
+	return kek
+}
+
+// deriveYubiKEKLegacy is the pre-v0.2.4 derivation: BLAKE3 derive-key over
+// response||salt. Retained so slots created by older bakku versions still
+// unlock. New slots use deriveYubiKEKHKDF instead.
+func deriveYubiKEKLegacy(response, salt []byte) []byte {
 	material := append(append([]byte{}, response...), salt...)
-	return crypto.DeriveSubKey(material, yubiKeyKDFContext)
+	kek := crypto.DeriveSubKey(material, yubiKeyKDFContext)
+	crypto.Wipe(material)
+	return kek
+}
+
+// deriveYubiKEKForSlot picks the derivation matching how the slot was written:
+// HKDF for slots marked yubiKeyKDFv2 in Params["kdf"], legacy BLAKE3 otherwise.
+func deriveYubiKEKForSlot(kf keyFile, response, salt []byte) []byte {
+	if kdf, _ := kf.Params["kdf"].(string); kdf == yubiKeyKDFv2 {
+		return deriveYubiKEKHKDF(response, salt)
+	}
+	return deriveYubiKEKLegacy(response, salt)
 }
 
 // buildYubiKeySlot constructs the keyFile for a fresh YubiKey slot: a random
@@ -136,8 +166,9 @@ func buildYubiKeySlot(cred yubiKeyCredential, masterKey []byte) (keyFile, error)
 	if err != nil {
 		return keyFile{}, err
 	}
-	kek := deriveYubiKEK(cred.Response, salt)
+	kek := deriveYubiKEKHKDF(cred.Response, salt)
 	wrapped, err := crypto.Seal(kek, masterKey, nil)
+	crypto.Wipe(kek) // KEK no longer needed once the master key is wrapped
 	if err != nil {
 		return keyFile{}, err
 	}
@@ -155,6 +186,7 @@ func buildYubiKeySlot(cred yubiKeyCredential, masterKey []byte) (keyFile, error)
 		Params: map[string]any{
 			"slot":      cred.Slot,
 			"challenge": hex.EncodeToString(cred.Challenge),
+			"kdf":       yubiKeyKDFv2,
 		},
 	}, nil
 }

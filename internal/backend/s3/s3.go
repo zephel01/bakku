@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	smithy "github.com/aws/smithy-go"
 
+	"github.com/zephel01/bakku/internal/backend/keyguard"
 	"github.com/zephel01/bakku/internal/backend/retry"
 )
 
@@ -128,6 +129,9 @@ func (s *S3) objectKey(key string) string {
 
 // Save uploads r to key. size may be -1; the SDK will buffer as needed.
 func (s *S3) Save(ctx context.Context, key string, r io.Reader, size int64) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	// PutObject requires a body that can be read exactly once per attempt.
 	// If the source isn't seekable and we need to retry, we must buffer.
 	body, err := toReaderAt(r, size)
@@ -152,6 +156,9 @@ func (s *S3) Save(ctx context.Context, key string, r io.Reader, size int64) erro
 
 // Load returns a reader for [offset, offset+length) of key.
 func (s *S3) Load(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return nil, err
+	}
 	var out *s3.GetObjectOutput
 	err := retry.Do(ctx, func(ctx context.Context) error {
 		input := &s3.GetObjectInput{
@@ -183,6 +190,9 @@ func (s *S3) Load(ctx context.Context, key string, offset, length int64) (io.Rea
 
 // Stat returns the size of key.
 func (s *S3) Stat(ctx context.Context, key string) (int64, error) {
+	if err := keyguard.Validate(key); err != nil {
+		return 0, err
+	}
 	var size int64
 	err := retry.Do(ctx, func(ctx context.Context) error {
 		input := &s3.HeadObjectInput{
@@ -213,6 +223,9 @@ func (s *S3) Stat(ctx context.Context, key string) (int64, error) {
 
 // List calls fn for every key under prefix.
 func (s *S3) List(ctx context.Context, prefix string, fn func(key string, size int64) error) error {
+	if err := keyguard.Validate(prefix); err != nil {
+		return err
+	}
 	fullPrefix := s.objectKey(prefix)
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
@@ -259,6 +272,9 @@ func (s *S3) List(ctx context.Context, prefix string, fn func(key string, size i
 
 // Delete removes key. A missing key is not an error.
 func (s *S3) Delete(ctx context.Context, key string) error {
+	if err := keyguard.Validate(key); err != nil {
+		return err
+	}
 	return retry.Do(ctx, func(ctx context.Context) error {
 		_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 			Bucket: aws.String(s.bucket),
