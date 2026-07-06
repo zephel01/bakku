@@ -3,3 +3,6 @@
 *.exe
 
 docs/note/
+
+.DS_Store
+internal/.DS_Store
